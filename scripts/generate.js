@@ -1,9 +1,14 @@
-const { createCanvas } = require('canvas');
-const obelisk = require('obelisk.js');
+const fs = require('fs');
 const fetch = require('node-fetch');
+const { createSVGWindow } = require('svgdom');
+const { SVG, registerWindow } = require('@svgdotjs/svg.js');
 
 const USERNAME = process.env.GH_USERNAME;
 const TOKEN = process.env.GITHUB_TOKEN;
+
+const WEEKS = 26;
+const DAYS = 7;
+const TILE = 20;
 
 async function fetchContributions() {
   const query = `
@@ -12,10 +17,7 @@ async function fetchContributions() {
         contributionsCollection {
           contributionCalendar {
             weeks {
-              contributionDays {
-                contributionCount
-                date
-              }
+              contributionDays { contributionCount date }
             }
           }
         }
@@ -36,45 +38,82 @@ async function fetchContributions() {
 }
 
 function getColor(count) {
-  if (count === 0) return new obelisk.ColorRGB(22, 27, 34);
-  if (count < 3) return new obelisk.ColorRGB(14, 68, 41);
-  if (count < 6) return new obelisk.ColorRGB(0, 109, 50);
-  if (count < 10) return new obelisk.ColorRGB(38, 166, 65);
-  return new obelisk.ColorRGB(57, 211, 83);
+  if (count === 0) return { top: '#161b22', left: '#0d1117', right: '#13171d' };
+  if (count < 3)  return { top: '#0e4429', left: '#08311d', right: '#0a3a22' };
+  if (count < 6)  return { top: '#006d32', left: '#004d23', right: '#005a29' };
+  if (count < 10) return { top: '#26a641', left: '#1b7a2f', right: '#1f8f37' };
+  return            { top: '#39d353', left: '#2bab40', right: '#30c049' };
 }
 
 async function main() {
-  const weeks = await fetchContributions();
+  const weeks = (await fetchContributions()).slice(-WEEKS);
 
-  // ambil cuma 26 minggu terakhir (half-year) biar persegi
-  const recentWeeks = weeks.slice(-26);
+  const window = createSVGWindow();
+  const document = window.document;
+  registerWindow(window, document);
 
-  const canvas = createCanvas(1200, 700);
-  const point = new obelisk.Point(550, 50);
-  const pixelView = new obelisk.PixelView(canvas, point);
+  const canvasWidth = (WEEKS + DAYS) * TILE + 100;
+  const canvasHeight = (WEEKS + DAYS) * (TILE / 2) + 150;
 
-  const CUBE_DIM = new obelisk.CubeDimension(20, 20, 6);
+  const draw = SVG(document.documentElement).size(canvasWidth, canvasHeight);
+  draw.attr('shape-rendering', 'crispEdges');
+  draw.attr('style', 'image-rendering: pixelated;');
 
-  recentWeeks.forEach((week, weekIdx) => {
+  const originX = canvasWidth / 2;
+  const originY = 50;
+
+  function isoTransform(x, y, z) {
+    const screenX = originX + (x - y) * (TILE / 2);
+    const screenY = originY + (x + y) * (TILE / 4) - z;
+    return { screenX, screenY };
+  }
+
+  weeks.forEach((week, weekIdx) => {
     week.contributionDays.forEach((day, dayIdx) => {
-      const color = getColor(day.contributionCount);
-      const height = Math.min(day.contributionCount * 2 + 4, 40);
-      const dim = new obelisk.CubeDimension(20, 20, height);
-      const cube = new obelisk.Cube(dim, color, false);
+      const count = day.contributionCount;
+      const height = Math.min(count * 2 + 4, 40);
+      const colors = getColor(count);
 
-      const x = weekIdx * 20;
-      const y = dayIdx * 20;
-      const p3d = new obelisk.Point3D(x, y, 0);
+      const x = weekIdx;
+      const y = dayIdx;
 
-      pixelView.renderObject(cube, p3d);
+      const top = isoTransform(x, y, height);
+      const topRight = isoTransform(x + 1, y, height);
+      const topLeft = isoTransform(x, y + 1, height);
+      const topCenter = isoTransform(x + 1, y + 1, height);
+      const baseRight = isoTransform(x + 1, y, 0);
+      const baseLeft = isoTransform(x, y + 1, 0);
+      const baseCenter = isoTransform(x + 1, y + 1, 0);
+
+      draw.polygon([
+        [top.screenX, top.screenY],
+        [topRight.screenX, topRight.screenY],
+        [topCenter.screenX, topCenter.screenY],
+        [topLeft.screenX, topLeft.screenY],
+      ]).fill(colors.top).stroke({ width: 1.5, color: '#010409' });
+
+      draw.polygon([
+        [topLeft.screenX, topLeft.screenY],
+        [topCenter.screenX, topCenter.screenY],
+        [baseCenter.screenX, baseCenter.screenY],
+        [baseLeft.screenX, baseLeft.screenY],
+      ]).fill(colors.left).stroke({ width: 1.5, color: '#010409' });
+
+      draw.polygon([
+        [topRight.screenX, topRight.screenY],
+        [topCenter.screenX, topCenter.screenY],
+        [baseCenter.screenX, baseCenter.screenY],
+        [baseRight.screenX, baseRight.screenY],
+      ]).fill(colors.right).stroke({ width: 1.5, color: '#010409' });
     });
   });
 
-  const fs = require('fs');
-  const out = fs.createWriteStream('profile-3d-contrib/profile-square-isometric.png');
-  const stream = canvas.createPNGStream();
-  stream.pipe(out);
-  out.on('finish', () => console.log('PNG generated'));
+  fs.mkdirSync('profile-3d-contrib', { recursive: true });
+  fs.writeFileSync(
+    'profile-3d-contrib/profile-square-isometric.svg',
+    draw.svg()
+  );
+  console.log('SVG generated:', canvasWidth, 'x', canvasHeight);
 }
 
 main();
