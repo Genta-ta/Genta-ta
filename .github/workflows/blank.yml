@@ -15,7 +15,7 @@ jobs:
       - uses: lowlighter/metrics@latest
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          user: ${{# github.repository_owner }}
+          user: ${{ github.repository_owner }}
           template: classic
           base: ""
           plugin_isocalendar: yes
