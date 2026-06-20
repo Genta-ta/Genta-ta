@@ -6,7 +6,7 @@ const { SVG, registerWindow } = require('@svgdotjs/svg.js');
 const USERNAME = process.env.GH_USERNAME;
 
 const TILE = 36;
-const GAP = 1.6; // jarak antar gedung (1 = nempel, makin besar makin renggang)
+const GAP = 1.6;
 const MAX_BUILDINGS = 30;
 const MAX_HEIGHT = 140;
 const MIN_HEIGHT = 24;
@@ -94,20 +94,21 @@ async function main() {
   const document = window.document;
   registerWindow(window, document);
 
-  const canvasWidth = (cols + rows) * TILE * GAP + 260;
-  const canvasHeight = (cols + rows) * (TILE * GAP / 2) + MAX_HEIGHT + 220;
+  // canvas dipersempit pas sama isi (gak ada padding kosong besar lagi)
+  const gridW = (cols + rows) * TILE * GAP / 2;
+  const gridH = (cols + rows) * (TILE * GAP / 4);
+  const canvasWidth = gridW + 60;
+  const canvasHeight = gridH + MAX_HEIGHT + 90;
 
   const draw = SVG(document.documentElement).viewbox(0, 0, canvasWidth, canvasHeight).size(canvasWidth, canvasHeight);
   draw.attr('shape-rendering', 'crispEdges');
   draw.attr('style', 'image-rendering: pixelated;');
-
-  // background full nutup canvas
   draw.rect(canvasWidth, canvasHeight).move(0, 0).fill('#0d1117');
 
   const originX = canvasWidth / 2;
-  const originY = 130;
+  const originY = 60;
 
-  // --- GROUND GRID PUTIH ---
+  // ground grid putih tipis
   for (let gx = 0; gx <= cols; gx++) {
     const p1 = isoTransform(originX, originY, gx, 0, 0);
     const p2 = isoTransform(originX, originY, gx, rows, 0);
@@ -121,6 +122,8 @@ async function main() {
       .stroke({ width: 1, color: '#ffffff', opacity: 0.15 });
   }
 
+  const usedLanguages = new Map(); // kumpulin bahasa yang beneran kepake buat legend
+
   const positioned = repos.map((repo, i) => ({
     ...repo,
     gx: i % cols,
@@ -132,7 +135,8 @@ async function main() {
     const heightRatio = commits / maxCommits;
     const height = MIN_HEIGHT + heightRatio * (MAX_HEIGHT - MIN_HEIGHT);
 
-    // footprint gedung dipersempit dikit dari grid cell (biar ada jarak/gang)
+    languages.forEach(l => usedLanguages.set(l.name, l.color));
+
     const pad = 0.18;
     const top = isoTransform(originX, originY, x + pad, y + pad, height);
     const topRight = isoTransform(originX, originY, x + 1 - pad, y + pad, height);
@@ -179,27 +183,28 @@ async function main() {
     drawStripedFace({ gx: x + pad, gy: y + 1 - pad }, { gx: x + 1 - pad, gy: y + 1 - pad }, -30);
     drawStripedFace({ gx: x + 1 - pad, gy: y + pad }, { gx: x + 1 - pad, gy: y + 1 - pad }, -12);
 
-    const labelY = top.screenY - 14;
-    const labelText = name.length > 14 ? name.slice(0, 13) + '…' : name;
-    const bubbleWidth = labelText.length * 6.2 + 14;
+    // label nama repo - font diperkecil
+    const labelY = top.screenY - 10;
+    const labelText = name.length > 12 ? name.slice(0, 11) + '…' : name;
+    const bubbleWidth = labelText.length * 4.6 + 10;
 
-    draw.rect(bubbleWidth, 18)
-      .radius(9)
+    draw.rect(bubbleWidth, 13)
+      .radius(6)
       .fill('#161b22')
-      .stroke({ width: 1, color: dominantColor })
-      .move(top.screenX - bubbleWidth / 2, labelY - 18);
+      .stroke({ width: 0.8, color: dominantColor })
+      .move(top.screenX - bubbleWidth / 2, labelY - 13);
 
     draw.text(labelText)
-      .font({ size: 10, family: 'monospace', fill: '#e6edf3', anchor: 'middle' })
-      .move(top.screenX - bubbleWidth / 2 + 7, labelY - 16);
+      .font({ size: 7, family: 'monospace', fill: '#e6edf3', anchor: 'middle' })
+      .move(top.screenX - bubbleWidth / 2 + 5, labelY - 12);
   });
 
-  // --- PANEL TOP COMMITS (pojok kanan atas, dengan margin) ---
+  // --- PANEL TOP COMMITS: kiri bawah ---
   const topRepos = [...repos].sort((a, b) => b.commits - a.commits).slice(0, 5);
-  const panelW = 200;
-  const panelH = 28 + topRepos.length * 20;
-  const panelX = canvasWidth - panelW - 24;
-  const panelY = 24;
+  const panelW = 170;
+  const panelH = 26 + topRepos.length * 17;
+  const panelX = 16;
+  const panelY = canvasHeight - panelH - 16;
 
   draw.rect(panelW, panelH)
     .radius(8)
@@ -208,19 +213,38 @@ async function main() {
     .move(panelX, panelY);
 
   draw.text('Top Commits')
-    .font({ size: 12, family: 'monospace', fill: '#39d353', anchor: 'start' })
-    .move(panelX + 10, panelY + 6);
+    .font({ size: 11, family: 'monospace', fill: '#39d353', anchor: 'start' })
+    .move(panelX + 8, panelY + 5);
 
   topRepos.forEach((r, i) => {
-    const lineY = panelY + 26 + i * 20;
-    const label = r.name.length > 16 ? r.name.slice(0, 15) + '…' : r.name;
+    const lineY = panelY + 22 + i * 17;
+    const label = r.name.length > 14 ? r.name.slice(0, 13) + '…' : r.name;
     draw.text(`${i + 1}. ${label}`)
-      .font({ size: 10, family: 'monospace', fill: '#c9d1d9', anchor: 'start' })
-      .move(panelX + 10, lineY);
+      .font({ size: 9, family: 'monospace', fill: '#c9d1d9', anchor: 'start' })
+      .move(panelX + 8, lineY);
     draw.text(`${r.commits}`)
-      .font({ size: 10, family: 'monospace', fill: '#58a6ff', anchor: 'end' })
-      .move(panelX + panelW - 10, lineY);
+      .font({ size: 9, family: 'monospace', fill: '#58a6ff', anchor: 'end' })
+      .move(panelX + panelW - 8, lineY);
   });
+
+  // --- LEGEND BAHASA: kiri & kanan, cuma yang beneran dipakai ---
+  const langEntries = Array.from(usedLanguages.entries());
+  const half = Math.ceil(langEntries.length / 2);
+  const leftLangs = langEntries.slice(0, half);
+  const rightLangs = langEntries.slice(half);
+
+  function drawLegend(entries, xPos, yStart, align) {
+    entries.forEach(([name, color], i) => {
+      const lineY = yStart + i * 16;
+      draw.rect(9, 9).radius(2).fill(color).move(xPos, lineY);
+      draw.text(name)
+        .font({ size: 9, family: 'monospace', fill: '#c9d1d9', anchor: align === 'right' ? 'end' : 'start' })
+        .move(align === 'right' ? xPos - 6 : xPos + 13, lineY - 1);
+    });
+  }
+
+  drawLegend(leftLangs, 14, 14, 'left');
+  drawLegend(rightLangs, canvasWidth - 14, 14, 'right');
 
   fs.mkdirSync('assets', { recursive: true });
 
