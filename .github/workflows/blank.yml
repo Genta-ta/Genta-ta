@@ -1,26 +1,32 @@
-name: GitHub-Profile-3D-Contrib
+name: GitHub-Profile-3D-Grid
 
 on:
   schedule:
-    # Menggunakan cron job agar robot otomatis jalan setiap 12 jam sekali
     - cron: "0 */12 * * *"
-  workflow_dispatch: # Baris ini agar kamu bisa mengetes atau menjalankan robot secara manual kapan saja
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    name: generate-github-profile-3d-contrib
     steps:
       - uses: actions/checkout@v3
-      - uses: yoshi389111/github-profile-3d-contrib@0.7.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          USERNAME: ${{ github.repository_owner }}
+      
+      # Menggunakan generator yang menghasilkan bentuk grid kotak persegi isometrik
+      - uses: lowlighter/metrics@latest
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          user: ${{# github.repository_owner }}
+          template: classic
+          base: ""
+          plugin_isocalendar: yes
+          plugin_isocalendar_duration: half-year # Ini yang bikin gridnya jadi kotak persegi, bukan setahun penuh
+          filename: profile-3d-contrib/profile-square-isometric.svg
+
       - name: Commit & Push
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add -A .
-          git commit -m "Automated Update: Pixel Repository City" || exit 0
+          git commit -m "Automated Update: Square Isometric Grid" || exit 0
           git push
           
