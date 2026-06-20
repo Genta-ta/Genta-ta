@@ -6,12 +6,11 @@ const { SVG, registerWindow } = require('@svgdotjs/svg.js');
 const USERNAME = process.env.GH_USERNAME;
 const TOKEN = process.env.GITHUB_TOKEN;
 
-const TILE = 36;       // ukuran footprint kotak (benar-benar persegi, bukan persegi panjang)
-const MAX_BUILDINGS = 30; // batasi biar gak terlalu padat
+const TILE = 36;
+const MAX_BUILDINGS = 30;
 const MAX_HEIGHT = 140;
 const MIN_HEIGHT = 24;
 
-// ---------- 1. FETCH DATA ----------
 async function fetchRepos() {
   const query = `
     query {
@@ -54,7 +53,7 @@ async function fetchRepos() {
   }
 
   return json.data.user.repositories.nodes
-    .filter(r => r.defaultBranchRef) // skip repo kosong
+    .filter(r => r.defaultBranchRef)
     .map(r => ({
       name: r.name,
       commits: r.defaultBranchRef.target.history.totalCount,
@@ -66,7 +65,6 @@ async function fetchRepos() {
     }));
 }
 
-// ---------- 2. HELPER ----------
 function shade(hex, percent) {
   const num = parseInt(hex.replace('#', ''), 16);
   let r = (num >> 16) + percent;
@@ -84,17 +82,16 @@ function isoTransform(originX, originY, x, y, z) {
   return { screenX, screenY };
 }
 
-// ---------- 3. MAIN ----------
 async function main() {
   const repos = await fetchRepos();
 
   if (repos.length === 0) {
     console.error('No repo data, aborting render.');
-    return;
+    process.exit(1);
   }
 
   const maxCommits = Math.max(...repos.map(r => r.commits), 1);
-  const cols = Math.ceil(Math.sqrt(repos.length)); // grid persegi berdasarkan jumlah repo
+  const cols = Math.ceil(Math.sqrt(repos.length));
   const rows = Math.ceil(repos.length / cols);
 
   const window = createSVGWindow();
@@ -108,13 +105,11 @@ async function main() {
   draw.attr('shape-rendering', 'crispEdges');
   draw.attr('style', 'image-rendering: pixelated;');
 
-  // background gelap
   draw.rect(canvasWidth, canvasHeight).fill('#0d1117');
 
   const originX = canvasWidth / 2;
   const originY = 120;
 
-  // urutkan render belakang-ke-depan biar gedung gak ketimpa salah (painter's algorithm)
   const positioned = repos.map((repo, i) => ({
     ...repo,
     gx: i % cols,
@@ -131,18 +126,14 @@ async function main() {
     const topRight = isoTransform(originX, originY, x + 1, y, height);
     const topLeft = isoTransform(originX, originY, x, y + 1, height);
     const topCenter = isoTransform(originX, originY, x + 1, y + 1, height);
-    const baseRight = isoTransform(originX, originY, x + 1, y, 0);
-    const baseLeft = isoTransform(originX, originY, x, y + 1, 0);
-    const baseCenter = isoTransform(originX, originY, x + 1, y + 1, 0);
 
-    // total ukuran bahasa, buat hitung proporsi tiap bahasa
     const totalSize = languages.reduce((sum, l) => sum + l.size, 0) || 1;
     let segments = languages.length > 0
       ? languages.map(l => ({ color: l.color, ratio: l.size / totalSize }))
       : [{ color: '#8b949e', ratio: 1 }];
 
-    // --- TOP FACE: warna bahasa dominan ---
     const dominantColor = segments[0].color;
+
     draw.polygon([
       [top.screenX, top.screenY],
       [topRight.screenX, topRight.screenY],
@@ -150,15 +141,13 @@ async function main() {
       [topLeft.screenX, topLeft.screenY],
     ]).fill(dominantColor).stroke({ width: 1.2, color: '#010409' });
 
-    // --- LEFT & RIGHT FACE: stacked horizontal bands sesuai proporsi bahasa ---
-    function drawStripedFace(p1, p2, p3, p4, shadePercent) {
+    function drawStripedFace(p1, p2, shadePercent) {
       let accumRatio = 0;
       segments.forEach(seg => {
         const yStart = accumRatio;
         const yEnd = accumRatio + seg.ratio;
         accumRatio = yEnd;
 
-        // interpolasi posisi vertikal band di antara top & base (top = z height, base = 0)
         const zTop = height - yStart * height;
         const zBot = height - yEnd * height;
 
@@ -176,12 +165,9 @@ async function main() {
       });
     }
 
-    // left face (x, y+1) ke (x+1, y+1)
-    drawStripedFace({ gx: x, gy: y + 1 }, { gx: x + 1, gy: y + 1 }, null, null, -30);
-    // right face (x+1, y) ke (x+1, y+1)
-    drawStripedFace({ gx: x + 1, gy: y }, { gx: x + 1, gy: y + 1 }, null, null, -12);
+    drawStripedFace({ gx: x, gy: y + 1 }, { gx: x + 1, gy: y + 1 }, -30);
+    drawStripedFace({ gx: x + 1, gy: y }, { gx: x + 1, gy: y + 1 }, -12);
 
-    // --- LABEL BUBBLE nama repo di atas gedung ---
     const labelY = top.screenY - 14;
     const labelText = name.length > 14 ? name.slice(0, 13) + '…' : name;
     const bubbleWidth = labelText.length * 6.2 + 14;
@@ -197,7 +183,6 @@ async function main() {
       .move(top.screenX - bubbleWidth / 2 + 7, labelY - 16);
   });
 
-  // ---------- 4. STATS PANEL (pojok kanan atas) ----------
   const topRepos = [...repos].sort((a, b) => b.commits - a.commits).slice(0, 5);
 
   const panelX = canvasWidth - 230;
@@ -211,7 +196,7 @@ async function main() {
     .stroke({ width: 1, color: '#30363d' })
     .move(panelX, panelY);
 
-  draw.text('🏆 Top Commits')
+  draw.text('Top Commits')
     .font({ size: 12, family: 'monospace', fill: '#39d353', anchor: 'start' })
     .move(panelX + 10, panelY + 6);
 
@@ -226,8 +211,7 @@ async function main() {
       .move(panelX + panelW - 10, lineY);
   });
 
-  // ---------- 5. WRITE FILE ----------
-  fs.mkdirSync('profile-3d-contrib', { recursive: true });
+  fs.mkdirSync('assets', { recursive: true });
 
   let svgOutput = draw.svg();
   if (!svgOutput.includes('xmlns=')) {
@@ -237,7 +221,7 @@ async function main() {
     );
   }
 
-  fs.writeFileSync('profile-3d-contrib/profile-square-isometric.svg', svgOutput);
+  fs.writeFileSync('assets/skyline.svg', svgOutput);
   console.log('SVG generated:', canvasWidth, 'x', canvasHeight, '| repos:', repos.length);
 }
 
