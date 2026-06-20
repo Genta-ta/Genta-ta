@@ -4,65 +4,70 @@ const { createSVGWindow } = require('svgdom');
 const { SVG, registerWindow } = require('@svgdotjs/svg.js');
 
 const USERNAME = process.env.GH_USERNAME;
-const TOKEN = process.env.GITHUB_TOKEN;
 
 const TILE = 36;
 const MAX_BUILDINGS = 30;
 const MAX_HEIGHT = 140;
 const MIN_HEIGHT = 24;
 
+const LANGUAGE_COLORS = {
+  JavaScript: '#f1e05a', TypeScript: '#3178c6', Python: '#3572A5',
+  Java: '#b07219', Kotlin: '#A97BFF', C: '#555555', 'C++': '#f34b7d',
+  Shell: '#89e051', Makefile: '#427819', Rust: '#dea584', Go: '#00ADD8',
+  HTML: '#e34c26', CSS: '#563d7c', Dart: '#00B4AB', Swift: '#F05138',
+  Ruby: '#701516', PHP: '#4F5D95', 'C#': '#178600', Vue: '#41b883',
+};
+
 async function fetchRepos() {
-  const query = `
-    query {
-      user(login: "${USERNAME}") {
-      repositories(first: ${MAX_BUILDINGS}, affiliations: [OWNER], isFork: false, orderBy: {field: PUSHED_AT, direction: DESC}) {
-            nodes {
-            name
-            pushedAt
-            defaultBranchRef {
-              target {
-                ... on Commit {
-                  history(first: 0) { totalCount }
-                }
-              }
-            }
-            languages(first: 5, orderBy: {field: SIZE, direction: DESC}) {
-              edges {
-                size
-                node { name color }
-              }
-            }
-          }
-        }
-      }
-    }`;
+  const res = await fetch(
+    `https://api.github.com/users/${USERNAME}/repos?per_page=${MAX_BUILDINGS}&sort=pushed&direction=desc`,
+    { headers: { 'User-Agent': 'repo-skyline-generator' } }
+  );
 
-  const res = await fetch('https://api.github.com/graphql', {
-    method: 'POST',
-    headers: {
-      Authorization: `bearer ${TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query }),
-  });
-
-  const json = await res.json();
-  if (!json.data || !json.data.user) {
-    console.error('GraphQL error:', JSON.stringify(json));
+  if (!res.ok) {
+    console.error('REST API error:', res.status, await res.text());
     return [];
   }
 
-  return json.data.user.repositories.nodes
-    .filter(r => r.defaultBranchRef)
-    .map(r => ({
-      name: r.name,
-      commits: r.defaultBranchRef.target.history.totalCount,
-      languages: r.languages.edges.map(e => ({
-        name: e.node.name,
-        color: e.node.color || '#888888',
-        size: e.size,
-      })),
-    }));
+  const repoList = await res.json();
+  const filtered = repoList.filter(r => !r.fork);
+  const results = [];
+
+  for (const repo of filtered) {
+    const commitsRes = await fetch(
+      `https://api.github.com/repos/${USERNAME}/${repo.name}/commits?per_page=1`,
+      { headers: { 'User-Agent': 'repo-skyline-generator' } }
+    );
+
+    let commitCount = 0;
+    const linkHeader = commitsRes.headers.get('link');
+    if (linkHeader && linkHeader.includes('rel="last"')) {
+      const match = linkHeader.match(/page=(\d+)>; rel="last"/);
+      commitCount = match ? parseInt(match[1]) : 1;
+    } else if (commitsRes.ok) {
+      const commitsData = await commitsRes.json();
+      commitCount = Array.isArray(commitsData) ? commitsData.length : 0;
+    }
+
+    const langRes = await fetch(
+      `https://api.github.com/repos/${USERNAME}/${repo.name}/languages`,
+      { headers: { 'User-Agent': 'repo-skyline-generator' } }
+    );
+    const langData = langRes.ok ? await langRes.json() : {};
+
+    const languages = Object.entries(langData)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, size]) => ({
+        name,
+        size,
+        color: LANGUAGE_COLORS[name] || '#8b949e',
+      }));
+
+    results.push({ name: repo.name, commits: commitCount, languages });
+  }
+
+  return results;
 }
 
 function shade(hex, percent) {
@@ -104,7 +109,6 @@ async function main() {
   const draw = SVG(document.documentElement).size(canvasWidth, canvasHeight);
   draw.attr('shape-rendering', 'crispEdges');
   draw.attr('style', 'image-rendering: pixelated;');
-
   draw.rect(canvasWidth, canvasHeight).fill('#0d1117');
 
   const originX = canvasWidth / 2;
