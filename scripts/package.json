@@ -1,0 +1,9 @@
+{
+  "name": "iso-grid",
+  "type": "commonjs",
+  "dependencies": {
+    "obelisk.js": "^2.1.1",
+    "canvas": "^2.11.2",
+    "node-fetch": "^2.7.0"
+  }
+}
