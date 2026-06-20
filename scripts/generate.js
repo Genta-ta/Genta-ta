@@ -15,8 +15,8 @@ async function fetchRepos() {
   const query = `
     query {
       user(login: "${USERNAME}") {
-        repositories(first: ${MAX_BUILDINGS}, ownerAffiliation: OWNER, isFork: false, orderBy: {field: PUSHED_AT, direction: DESC}) {
-          nodes {
+      repositories(first: ${MAX_BUILDINGS}, affiliations: [OWNER], isFork: false, orderBy: {field: PUSHED_AT, direction: DESC}) {
+            nodes {
             name
             pushedAt
             defaultBranchRef {
