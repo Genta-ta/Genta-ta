@@ -8,3 +8,4 @@
 <img src="https://github-readme-stats.vercel.app/api/top-langs/?username=Genta-ta&layout=compact&langs_count=10&theme=dracula" height="150" alt="languages graph" />
 </div>
 ![3D Pixel Contribution Grid](profile-3d-contrib/profile-square-isometric.svg)
+![3D Pixel Contribution Grid](profile-3d-contrib/profile-square-isometric.svg)
