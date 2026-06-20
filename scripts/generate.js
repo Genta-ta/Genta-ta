@@ -6,6 +6,7 @@ const { SVG, registerWindow } = require('@svgdotjs/svg.js');
 const USERNAME = process.env.GH_USERNAME;
 
 const TILE = 36;
+const GAP = 1.6; // jarak antar gedung (1 = nempel, makin besar makin renggang)
 const MAX_BUILDINGS = 30;
 const MAX_HEIGHT = 140;
 const MIN_HEIGHT = 24;
@@ -23,12 +24,10 @@ async function fetchRepos() {
     `https://api.github.com/users/${USERNAME}/repos?per_page=${MAX_BUILDINGS}&sort=pushed&direction=desc`,
     { headers: { 'User-Agent': 'repo-skyline-generator' } }
   );
-
   if (!res.ok) {
     console.error('REST API error:', res.status, await res.text());
     return [];
   }
-
   const repoList = await res.json();
   const filtered = repoList.filter(r => !r.fork);
   const results = [];
@@ -38,7 +37,6 @@ async function fetchRepos() {
       `https://api.github.com/repos/${USERNAME}/${repo.name}/commits?per_page=1`,
       { headers: { 'User-Agent': 'repo-skyline-generator' } }
     );
-
     let commitCount = 0;
     const linkHeader = commitsRes.headers.get('link');
     if (linkHeader && linkHeader.includes('rel="last"')) {
@@ -54,19 +52,13 @@ async function fetchRepos() {
       { headers: { 'User-Agent': 'repo-skyline-generator' } }
     );
     const langData = langRes.ok ? await langRes.json() : {};
-
     const languages = Object.entries(langData)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-      .map(([name, size]) => ({
-        name,
-        size,
-        color: LANGUAGE_COLORS[name] || '#8b949e',
-      }));
+      .map(([name, size]) => ({ name, size, color: LANGUAGE_COLORS[name] || '#8b949e' }));
 
     results.push({ name: repo.name, commits: commitCount, languages });
   }
-
   return results;
 }
 
@@ -82,14 +74,13 @@ function shade(hex, percent) {
 }
 
 function isoTransform(originX, originY, x, y, z) {
-  const screenX = originX + (x - y) * (TILE / 2);
-  const screenY = originY + (x + y) * (TILE / 4) - z;
+  const screenX = originX + (x - y) * (TILE * GAP / 2);
+  const screenY = originY + (x + y) * (TILE * GAP / 4) - z;
   return { screenX, screenY };
 }
 
 async function main() {
   const repos = await fetchRepos();
-
   if (repos.length === 0) {
     console.error('No repo data, aborting render.');
     process.exit(1);
@@ -103,16 +94,32 @@ async function main() {
   const document = window.document;
   registerWindow(window, document);
 
-  const canvasWidth = (cols + rows) * TILE + 240;
-  const canvasHeight = (cols + rows) * (TILE / 2) + MAX_HEIGHT + 200;
+  const canvasWidth = (cols + rows) * TILE * GAP + 260;
+  const canvasHeight = (cols + rows) * (TILE * GAP / 2) + MAX_HEIGHT + 220;
 
-  const draw = SVG(document.documentElement).size(canvasWidth, canvasHeight);
+  const draw = SVG(document.documentElement).viewbox(0, 0, canvasWidth, canvasHeight).size(canvasWidth, canvasHeight);
   draw.attr('shape-rendering', 'crispEdges');
   draw.attr('style', 'image-rendering: pixelated;');
-  draw.rect(canvasWidth, canvasHeight).fill('#0d1117');
+
+  // background full nutup canvas
+  draw.rect(canvasWidth, canvasHeight).move(0, 0).fill('#0d1117');
 
   const originX = canvasWidth / 2;
-  const originY = 120;
+  const originY = 130;
+
+  // --- GROUND GRID PUTIH ---
+  for (let gx = 0; gx <= cols; gx++) {
+    const p1 = isoTransform(originX, originY, gx, 0, 0);
+    const p2 = isoTransform(originX, originY, gx, rows, 0);
+    draw.line(p1.screenX, p1.screenY, p2.screenX, p2.screenY)
+      .stroke({ width: 1, color: '#ffffff', opacity: 0.15 });
+  }
+  for (let gy = 0; gy <= rows; gy++) {
+    const p1 = isoTransform(originX, originY, 0, gy, 0);
+    const p2 = isoTransform(originX, originY, cols, gy, 0);
+    draw.line(p1.screenX, p1.screenY, p2.screenX, p2.screenY)
+      .stroke({ width: 1, color: '#ffffff', opacity: 0.15 });
+  }
 
   const positioned = repos.map((repo, i) => ({
     ...repo,
@@ -122,14 +129,15 @@ async function main() {
 
   positioned.forEach(repo => {
     const { gx: x, gy: y, commits, name, languages } = repo;
-
     const heightRatio = commits / maxCommits;
     const height = MIN_HEIGHT + heightRatio * (MAX_HEIGHT - MIN_HEIGHT);
 
-    const top = isoTransform(originX, originY, x, y, height);
-    const topRight = isoTransform(originX, originY, x + 1, y, height);
-    const topLeft = isoTransform(originX, originY, x, y + 1, height);
-    const topCenter = isoTransform(originX, originY, x + 1, y + 1, height);
+    // footprint gedung dipersempit dikit dari grid cell (biar ada jarak/gang)
+    const pad = 0.18;
+    const top = isoTransform(originX, originY, x + pad, y + pad, height);
+    const topRight = isoTransform(originX, originY, x + 1 - pad, y + pad, height);
+    const topLeft = isoTransform(originX, originY, x + pad, y + 1 - pad, height);
+    const topCenter = isoTransform(originX, originY, x + 1 - pad, y + 1 - pad, height);
 
     const totalSize = languages.reduce((sum, l) => sum + l.size, 0) || 1;
     let segments = languages.length > 0
@@ -151,7 +159,6 @@ async function main() {
         const yStart = accumRatio;
         const yEnd = accumRatio + seg.ratio;
         accumRatio = yEnd;
-
         const zTop = height - yStart * height;
         const zBot = height - yEnd * height;
 
@@ -169,8 +176,8 @@ async function main() {
       });
     }
 
-    drawStripedFace({ gx: x, gy: y + 1 }, { gx: x + 1, gy: y + 1 }, -30);
-    drawStripedFace({ gx: x + 1, gy: y }, { gx: x + 1, gy: y + 1 }, -12);
+    drawStripedFace({ gx: x + pad, gy: y + 1 - pad }, { gx: x + 1 - pad, gy: y + 1 - pad }, -30);
+    drawStripedFace({ gx: x + 1 - pad, gy: y + pad }, { gx: x + 1 - pad, gy: y + 1 - pad }, -12);
 
     const labelY = top.screenY - 14;
     const labelText = name.length > 14 ? name.slice(0, 13) + '…' : name;
@@ -187,12 +194,12 @@ async function main() {
       .move(top.screenX - bubbleWidth / 2 + 7, labelY - 16);
   });
 
+  // --- PANEL TOP COMMITS (pojok kanan atas, dengan margin) ---
   const topRepos = [...repos].sort((a, b) => b.commits - a.commits).slice(0, 5);
-
-  const panelX = canvasWidth - 230;
-  const panelY = 16;
-  const panelW = 214;
+  const panelW = 200;
   const panelH = 28 + topRepos.length * 20;
+  const panelX = canvasWidth - panelW - 24;
+  const panelY = 24;
 
   draw.rect(panelW, panelH)
     .radius(8)
@@ -206,7 +213,7 @@ async function main() {
 
   topRepos.forEach((r, i) => {
     const lineY = panelY + 26 + i * 20;
-    const label = r.name.length > 18 ? r.name.slice(0, 17) + '…' : r.name;
+    const label = r.name.length > 16 ? r.name.slice(0, 15) + '…' : r.name;
     draw.text(`${i + 1}. ${label}`)
       .font({ size: 10, family: 'monospace', fill: '#c9d1d9', anchor: 'start' })
       .move(panelX + 10, lineY);
