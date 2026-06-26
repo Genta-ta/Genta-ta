@@ -5,3 +5,4 @@
     <img src="https://github-readme-stats.vercel.app/api/top-langs/?username=genta-ta&layout=compact&langs_count=10&theme=dracula" alt="languages graph" style="height:150px; max-width:220px;" />
   </div>
 </div>
+<img src="assets/skyline.svg" width="100%" alt="3D Grid"/>
